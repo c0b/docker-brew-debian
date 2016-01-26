@@ -57,19 +57,24 @@ for version in "${versions[@]}"; do
 	suite="$(get_part "$dir" suite "$version")"
 	mirror="$(get_part "$dir" mirror '')"
 	script="$(get_part "$dir" script '')"
-	
+	repo="$(get_part "$dir" repo '')"
+
 	args=( -d "$dir" debootstrap )
 	[ -z "$variant" ] || args+=( --variant="$variant" )
 	[ -z "$components" ] || args+=( --components="$components" )
 	[ -z "$include" ] || args+=( --include="$include" )
 	[ -z "$arch" ] || args+=( --arch="$arch" )
-	
+
 	debootstrapVersion="$(debootstrap --version)"
 	debootstrapVersion="${debootstrapVersion##* }"
-	if dpkg --compare-versions "$debootstrapVersion" '>=' '1.0.69'; then
+	if [[ "$mirror" == *.debian-ports.* ]]; then
+		args+=( --keyring=/usr/share/keyrings/debian-ports-archive-keyring.gpg )
+	elif [[ "$version" == *-x32 ]]; then
+		args+=( --no-check-gpg )
+	elif dpkg --compare-versions "$debootstrapVersion" '>=' '1.0.69'; then
 		args+=( --force-check-gpg )
 	fi
-	
+
 	args+=( "$suite" )
 	if [ "$mirror" ]; then
 		args+=( "$mirror" )
@@ -77,23 +82,20 @@ for version in "${versions[@]}"; do
 			args+=( "$script" )
 		fi
 	fi
-	
+
 	mkimage="$(readlink -f "${MKIMAGE:-"mkimage.sh"}")"
 	{
 		echo "$(basename "$mkimage") ${args[*]/"$dir"/.}"
 		echo
 		echo 'https://github.com/docker/docker/blob/master/contrib/mkimage.sh'
 	} > "$dir/build-command.txt"
-	
-	sudo nice ionice -c 3 "$mkimage" "${args[@]}" 2>&1 | tee "$dir/build.log"
-	
+
+	sudo nice ionice -c 3 "$mkimage" "${args[@]}" |& tee "$dir/build.log"
+
 	sudo chown -R "$(id -u):$(id -g)" "$dir"
-	
+
 	if [ "$repo" ]; then
 		( set -x && docker build -t "${repo}:${suite}" "$dir" )
-		if [ "$suite" != "$version" ]; then
-			( set -x && docker tag "${repo}:${suite}" "${repo}:${version}" )
-		fi
 		if [ "$suite" = "$latest" ]; then
 			( set -x && docker tag -f "$repo:$suite" "$repo:latest" )
 		fi
@@ -108,8 +110,8 @@ for version in "${versions[@]}"; do
 			true
 		'
 		docker run --rm "${repo}:${suite}" dpkg-query -f '${Package}\t${Version}\n' -W > "$dir/build.manifest"
-		
-		if [ "${backports[$suite]}" ]; then
+
+		if [[ -n "${backports[$suite]}" && "$arch" != x32 ]]; then
 			mkdir -p "$dir/backports"
 			echo "FROM $origRepo:$suite" > "$dir/backports/Dockerfile"
 			cat >> "$dir/backports/Dockerfile" <<-'EOF'

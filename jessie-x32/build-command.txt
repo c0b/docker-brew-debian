@@ -1,0 +1,3 @@
+mkimage.sh -d . debootstrap --variant=minbase --components=main --include=inetutils-ping,iproute2 --arch=x32 --no-check-gpg jessie http://ftp.debian-x32.org/debian /usr/share/debootstrap/scripts/jessie
+
+https://github.com/docker/docker/blob/master/contrib/mkimage.sh
